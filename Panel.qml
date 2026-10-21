@@ -1,0 +1,439 @@
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import qs.Commons
+import qs.Commons as Commons
+import qs.Ui
+
+// Hycli control panel.
+//
+// Everything goes through the hycli CLI, which reads the same private state
+// the dashboard does: `status` for the engine, `jobs ls` for work. The
+// dashboard's HTTP API is never called, so the panel needs no session token,
+// and `hycli open` hands the browser its own one-time launch address.
+Panel {
+  id: root
+  moduleName: "mechurisr.hycli"
+  ipcTarget: "mechurisr.hycli"
+  manageIpc: false
+
+  property var anchorItem: null
+  property var hostWidget: null
+  readonly property var barIdentity: hostWidget || root
+
+  // ------------------------------------------------------------ settings
+
+  readonly property string binary: String(setting("binary", "hycli") || "hycli")
+  readonly property bool notifyDone: setting("notify", true) !== false
+
+  // ------------------------------------------------------------ state
+
+  property bool engineRunning: false
+  property string engineUrl: ""
+  property var jobs: []
+  property bool loaded: false
+  property string lastError: ""
+  property string pending: ""       // "start" | "stop" while the CLI works
+  property double now: Date.now()
+  property var lastStatus: ({})     // job id -> status, for finish notifications
+
+  readonly property var active: jobs.filter(function(j) { return isWorking(j.status) })
+  readonly property bool busy: active.length > 0
+
+  readonly property string glyph: "󰖟"
+  readonly property string label: busy ? glyph + " " + active.length : glyph
+
+  readonly property var recent: {
+    var list = jobs.slice()
+    list.sort(function(a, b) { return String(b.updated_at).localeCompare(String(a.updated_at)) })
+    return list.slice(0, 8)
+  }
+
+  function isWorking(status) {
+    return status === "running" || status === "queued"
+  }
+
+  // ------------------------------------------------------ panel lifecycle
+
+  function open() { openFromHotkey() }
+
+  function openFromHotkey() {
+    root.controller.show()
+    refresh()
+  }
+
+  function close() {
+    root.controller.hide()
+  }
+
+  function toggle() {
+    if (root.opened) root.close()
+    else root.openFromHotkey()
+  }
+
+  function switchPanel(direction) {
+    if (root.bar && typeof root.bar.switchPanelFrom === "function")
+      return root.bar.switchPanelFrom(root.barIdentity, direction)
+    return false
+  }
+
+  // ------------------------------------------------------------ commands
+
+  function refresh() {
+    if (poll.running) return
+    poll.command = ["sh", "-c", '"$0" status; echo; echo "\x1e"; "$0" jobs ls', root.binary]
+    poll.running = true
+  }
+
+  function applyPoll(text) {
+    var parts = String(text || "").split("\x1e")
+    try {
+      var status = JSON.parse(parts[0])
+      engineRunning = status.running === true
+      engineUrl = status.url || ""
+      jobs = JSON.parse(parts[1] || "[]")
+      lastError = ""
+    } catch (e) {
+      lastError = loaded ? lastError : "hycli not found"
+      engineRunning = false
+      jobs = []
+    }
+    loaded = true
+    now = Date.now()
+    announceFinished()
+  }
+
+  // A preparation can take minutes; say when one stops, not when it starts.
+  function announceFinished() {
+    var next = {}
+    for (var i = 0; i < jobs.length; i++) {
+      var j = jobs[i]
+      var before = lastStatus[j.id]
+      if (notifyDone && before && isWorking(before) && !isWorking(j.status))
+        Quickshell.execDetached(["notify-send", "-a", "Hycli",
+          jobTitle(j), j.status === "completed" ? (j.summary || "Finished.") : statusText(j)])
+      next[j.id] = j.status
+    }
+    lastStatus = next
+  }
+
+  function openDashboard() {
+    run("open", ["open"])
+  }
+
+  function startEngine() {
+    run("start", ["open", "--no-open"])
+  }
+
+  function stopEngine() {
+    run("stop", ["stop"])
+  }
+
+  function run(kind, args) {
+    if (action.running) return
+    pending = kind
+    action.command = [root.binary].concat(args)
+    action.running = true
+  }
+
+  Process {
+    id: poll
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.applyPoll(text)
+    }
+  }
+
+  Process {
+    id: action
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var msg = String(text || "").trim()
+        if (msg) root.lastError = msg.split("\n").pop().replace(/^hycli: /, "")
+      }
+    }
+    onExited: function(code) {
+      if (code === 0) root.lastError = ""
+      root.pending = ""
+      root.refresh()
+    }
+  }
+
+  // Quick while something is happening or someone is looking, slow otherwise.
+  Timer {
+    interval: root.opened || root.busy || root.pending ? 3000 : 30000
+    running: true
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: root.refresh()
+  }
+
+  IpcHandler {
+    target: root.ipcTarget
+
+    function open(): void { root.openFromHotkey() }
+    function close(): void { root.close() }
+    function show(): void { root.openFromHotkey() }
+    function hide(): void { root.close() }
+    function toggle(): void { root.toggle() }
+    function refresh(): void { root.refresh() }
+    function dashboard(): void { root.openDashboard() }
+    function status(): string {
+      if (!root.loaded) return "loading"
+      if (root.lastError && !root.engineRunning) return root.lastError
+      return (root.engineRunning ? "running " + root.engineUrl : "stopped")
+        + ", " + root.active.length + " working"
+    }
+  }
+
+  // ------------------------------------------------------------ formatting
+
+  function jobTitle(j) {
+    var what = j.action_title || (j.kind === "prepare" ? "Prepare" : j.kind)
+    return (j.site_title || "Hycli") + " · " + what
+  }
+
+  function statusText(j) {
+    if (j.status === "running") {
+      var step = j.progress_total > 0 ? " " + j.progress_done + "/" + j.progress_total : ""
+      return (j.phase || "running") + step
+    }
+    if (j.error_code) return j.status + " · " + j.error_code.replace(/_/g, " ")
+    return j.status
+  }
+
+  function lastNote(j) {
+    var notes = j.notes || []
+    return notes.length ? notes[notes.length - 1].message : (j.intent || "")
+  }
+
+  function relative(iso) {
+    var t = Date.parse(iso)
+    if (!t) return ""
+    var s = Math.max(0, Math.round((now - t) / 1000))
+    if (s < 60) return s + "s"
+    if (s < 3600) return Math.round(s / 60) + "m"
+    if (s < 86400) return Math.round(s / 3600) + "h"
+    return Math.round(s / 86400) + "d"
+  }
+
+  // ------------------------------------------------------------ the panel
+
+  readonly property color fg: root.bar ? root.bar.foreground : Commons.Color.foreground
+  readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
+  readonly property color dim: Qt.darker(fg, 1.6)
+  readonly property color accent: Commons.Color.accent
+  readonly property color warn: Commons.Color.urgent
+
+  KeyboardPanel {
+    id: panel
+    anchorItem: root.anchorItem
+    owner: root.barIdentity
+    bar: root.bar
+    open: root.opened
+    focusTarget: keyCatcher
+    contentWidth: panel.fittedContentWidth(Style.space(420))
+    contentHeight: panel.fittedContentHeight(column.implicitHeight)
+
+    PanelKeyCatcher {
+      id: keyCatcher
+      anchors.fill: parent
+
+      onCloseRequested: root.close()
+      onTabRequested: function(direction) { root.switchPanel(direction) }
+      onActivateRequested: root.openDashboard()
+      onTextKey: function(text) {
+        if (text === "r") root.refresh()
+        else if (text === "d") root.openDashboard()
+        else if (text === "s") root.engineRunning ? root.stopEngine() : root.startEngine()
+      }
+
+      Column {
+        id: column
+        width: parent.width
+        spacing: Style.space(10)
+
+        // ---------------------------------------------------- header
+
+        Item {
+          width: parent.width
+          height: title.implicitHeight
+
+          Text {
+            id: title
+            anchors.left: parent.left
+            anchors.leftMargin: Style.space(4)
+            text: "HYCLI"
+            color: root.fg
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            font.bold: true
+            font.letterSpacing: 1.5
+          }
+
+          Text {
+            anchors.right: parent.right
+            anchors.rightMargin: Style.space(4)
+            anchors.verticalCenter: title.verticalCenter
+            width: parent.width - title.width - Style.space(16)
+            horizontalAlignment: Text.AlignRight
+            elide: Text.ElideLeft
+            color: root.lastError ? root.warn : root.engineRunning ? root.accent : root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            text: root.pending === "start" ? "starting…"
+              : root.pending === "stop" ? "stopping…"
+              : root.lastError ? root.lastError
+              : !root.loaded ? "…"
+              : root.engineRunning ? "● " + root.engineUrl.replace(/^https?:\/\//, "")
+              : "○ engine stopped"
+          }
+        }
+
+        // ---------------------------------------------------- actions
+
+        Row {
+          spacing: Style.space(8)
+
+          Button {
+            text: "Dashboard"
+            iconText: ""
+            bordered: true
+            foreground: root.fg
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            enabled: !root.pending && root.lastError !== "hycli not found"
+            onClicked: root.openDashboard()
+          }
+
+          Button {
+            text: root.engineRunning ? "Stop engine" : "Start engine"
+            iconText: root.engineRunning ? "" : ""
+            bordered: true
+            foreground: root.fg
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            enabled: !root.pending && root.loaded && root.lastError !== "hycli not found"
+            onClicked: root.engineRunning ? root.stopEngine() : root.startEngine()
+          }
+        }
+
+        PanelSeparator { width: parent.width; foreground: root.fg }
+
+        PanelSectionHeader {
+          text: "RECENT WORK"
+          foreground: root.dim
+          fontFamily: root.fontFamily
+        }
+
+        Text {
+          visible: root.recent.length === 0
+          width: parent.width
+          leftPadding: Style.space(4)
+          wrapMode: Text.Wrap
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          text: root.lastError === "hycli not found"
+            ? "Install hycli or set its path in the widget settings."
+            : "Nothing yet. Prepare a website from the dashboard or with\nhycli prepare URL --intent \"…\""
+        }
+
+        Repeater {
+          model: root.recent
+
+          delegate: Rectangle {
+            id: row
+            required property var modelData
+            readonly property bool working: root.isWorking(modelData.status)
+            readonly property bool failed: !working && modelData.status !== "completed"
+
+            width: column.width
+            height: rowColumn.implicitHeight + Style.space(10)
+            radius: Style.cornerRadius
+            color: rowMouse.containsMouse ? Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.07) : "transparent"
+
+            Column {
+              id: rowColumn
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              anchors.leftMargin: Style.space(4)
+              anchors.rightMargin: Style.space(4)
+              spacing: Style.space(2)
+
+              Item {
+                width: parent.width
+                height: rowTitle.implicitHeight
+
+                Text {
+                  id: rowTitle
+                  anchors.left: parent.left
+                  width: parent.width - rowWhen.width - Style.space(8)
+                  elide: Text.ElideRight
+                  color: root.fg
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  text: root.jobTitle(row.modelData)
+                }
+
+                Text {
+                  id: rowWhen
+                  anchors.right: parent.right
+                  anchors.verticalCenter: rowTitle.verticalCenter
+                  color: row.working ? root.accent : row.failed ? root.warn : root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  text: root.statusText(row.modelData) + "  " + root.relative(row.modelData.updated_at)
+                }
+              }
+
+              Text {
+                width: parent.width
+                elide: Text.ElideRight
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                text: row.modelData.status === "completed" && row.modelData.summary
+                  ? row.modelData.summary : root.lastNote(row.modelData)
+              }
+
+              // Progress through the preparation's workers.
+              Rectangle {
+                visible: row.working && row.modelData.progress_total > 0
+                width: parent.width
+                height: 2
+                color: Qt.rgba(root.fg.r, root.fg.g, root.fg.b, 0.12)
+
+                Rectangle {
+                  height: parent.height
+                  width: parent.width * Math.min(1, row.modelData.progress_done / Math.max(1, row.modelData.progress_total))
+                  color: root.accent
+                  Behavior on width { NumberAnimation { duration: 300 } }
+                }
+              }
+            }
+
+            MouseArea {
+              id: rowMouse
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.openDashboard()
+            }
+          }
+        }
+
+        Text {
+          width: parent.width
+          leftPadding: Style.space(4)
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          text: "d dashboard · s start/stop · r refresh"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "mechurisr.hycli",
+  "name": "Hycli",
+  "version": "0.1.0",
+  "author": "chanwook lee",
+  "license": "MIT",
+  "description": "Status of the local Hycli engine and its website preparation work, with one-click access to the dashboard.",
+  "keywords": ["hycli", "ai", "mcp", "cli", "agents"],
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Hycli",
+    "description": "Running work count in the bar; engine control, recent work and the dashboard in the panel.",
+    "category": "Tools",
+    "aliases": ["hycli", "websites", "mcp"],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "binary": "hycli",
+      "notify": true
+    },
+    "schema": [
+      {
+        "key": "binary",
+        "type": "string",
+        "label": "Hycli executable",
+        "defaultValue": "hycli"
+      },
+      {
+        "key": "notify",
+        "type": "boolean",
+        "label": "Notify when work finishes",
+        "defaultValue": true
+      }
+    ]
+  }
+}
