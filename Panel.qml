@@ -9,8 +9,8 @@ import qs.Ui
 //
 // Everything goes through the hycli CLI, which reads the same private state
 // the dashboard does: `status` for the engine, `jobs ls` for work. The
-// dashboard's HTTP API is never called, so the panel needs no session token,
-// and `hycli open` hands the browser its own one-time launch address.
+// dashboard's HTTP API is never called. Only opening the dashboard touches
+// the launch token, and it keeps that token off every command line.
 Panel {
   id: root
   moduleName: "mechurisr.hycli"
@@ -90,7 +90,8 @@ Panel {
     try {
       var status = JSON.parse(parts[0])
       engineRunning = status.running === true
-      engineUrl = status.url || ""
+      // Newer Hycli builds append the launch token; never show it.
+      engineUrl = String(status.url || "").replace(/[?#].*$/, "")
       jobs = JSON.parse(parts[1] || "[]")
       lastError = ""
     } catch (e) {
@@ -117,22 +118,46 @@ Panel {
     lastStatus = next
   }
 
+  // `hycli open` would pass the launch address, token included, to xdg-open
+  // as an argument, where other users can read it from /proc. The dashboard
+  // only accepts that address from a navigation the user started, so a
+  // redirect cannot carry it either. Open the plain address instead (enough
+  // when the browser still has its session cookie) and put the launch
+  // address on the clipboard, marked sensitive so clipboard history skips
+  // it, and clear it after two minutes if it is still there. printf and [
+  // are shell builtins and wl-copy reads stdin, so the token never reaches
+  // an argv. (--paste-once does not work here: history watchers take it.)
+  readonly property string openScript: `
+out=$("$0" open --no-open) || exit
+url=$(printf %s "$out" | sed -n 's|.*"url":"\\(http://127\\.0\\.0\\.1:[0-9]*\\)[^"]*".*|\\1|p')
+[ -n "$url" ] || { echo "hycli: no dashboard address" >&2; exit 1; }
+dir=\${HYCLI_DATA_DIR:-\${XDG_DATA_HOME:-$HOME/.local/share}/hycli}
+launch=$(sed -n 's/.*"launch":"\\([0-9A-Za-z]*\\)".*/\\1/p' "$dir/dashboard-session.json" 2>/dev/null)
+xdg-open "$url/" </dev/null >/dev/null 2>&1 || { echo "hycli: could not open the browser" >&2; exit 1; }
+[ -n "$launch" ] || exit 0
+addr="$url/?launch=$launch"
+printf %s "$addr" | wl-copy --sensitive >/dev/null 2>&1 ||
+  { echo "hycli: could not copy the launch address (is wl-copy installed?)" >&2; exit 1; }
+notify-send -a Hycli "Launch address copied" "If the dashboard asks you to open Hycli, paste it into the address bar."
+(sleep 120; [ "$(wl-paste -n 2>/dev/null)" = "$addr" ] && wl-copy --clear) </dev/null >/dev/null 2>&1 &
+`
+
   function openDashboard() {
-    run("open", ["open"])
+    run("open", ["sh", "-c", openScript, root.binary])
   }
 
   function startEngine() {
-    run("start", ["open", "--no-open"])
+    run("start", [root.binary, "open", "--no-open"])
   }
 
   function stopEngine() {
-    run("stop", ["stop"])
+    run("stop", [root.binary, "stop"])
   }
 
-  function run(kind, args) {
+  function run(kind, command) {
     if (action.running) return
     pending = kind
-    action.command = [root.binary].concat(args)
+    action.command = command
     action.running = true
   }
 
