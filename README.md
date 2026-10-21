@@ -17,10 +17,31 @@ never talks to the dashboard's HTTP API or reads its session secrets;
 
 ## Requirements
 
-This plugin does not include Hycli. Install it first from the
-[Hycli releases](https://github.com/Hybirdss/Hycli/releases): extract the
-`linux-x64` (or `linux-arm64`) archive and put `hycli` on your `PATH`, or set
-its path in the widget settings below.
+This plugin does not include Hycli, and it runs whichever `hycli` executable
+it finds. It was reviewed against Hycli 0.1.0. Install that exact release and
+check the archive against the checksum pinned here before extracting it:
+
+| Archive | SHA-256 |
+| --- | --- |
+| `hycli-0.1.0-linux-x64.tar.gz` | `7d980309bdaa6dac170157268b8e823e6c10060c0ff06c7de226594903411bd2` |
+| `hycli-0.1.0-linux-arm64.tar.gz` | `a188b133c5e483884dfa63f2ef69091b7493d88e0a72323421a1cb429bdeeb07` |
+
+```bash
+arch=x64   # or arm64
+case $arch in
+  x64) sum=7d980309bdaa6dac170157268b8e823e6c10060c0ff06c7de226594903411bd2 ;;
+  arm64) sum=a188b133c5e483884dfa63f2ef69091b7493d88e0a72323421a1cb429bdeeb07 ;;
+esac
+file=hycli-0.1.0-linux-$arch.tar.gz
+curl -fLO "https://github.com/Hybirdss/Hycli/releases/download/v0.1.0/$file"
+echo "$sum  $file" | sha256sum -c - &&
+  tar -xzf "$file" &&
+  install -Dm755 "hycli-0.1.0-linux-$arch/hycli" ~/.local/bin/hycli
+```
+
+Stop if `sha256sum` reports a mismatch. A different Hycli version may work,
+but it is not the one this plugin was reviewed with. To use an executable
+outside your `PATH`, set `binary` in the widget settings below.
 
 ## Install
 
