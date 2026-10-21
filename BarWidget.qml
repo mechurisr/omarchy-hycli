@@ -60,7 +60,7 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: panelLoader.item && !root.vertical ? panelLoader.item.label : "󰖟"
+    text: panelLoader.item && !root.vertical ? panelLoader.item.label : "󱗆"
     active: panelLoader.item ? panelLoader.item.busy : false
     opacity: panelLoader.item && !panelLoader.item.engineRunning ? 0.55 : 1
     tooltipText: ""

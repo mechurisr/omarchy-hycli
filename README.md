@@ -3,6 +3,18 @@
 A bar widget for [Hycli](https://github.com/Hybirdss/Hycli), the tool that
 turns websites into a typed CLI and MCP server for AI agents.
 
+- **Bar**: bird glyph, plus the number of preparations still running
+  (accent colour while busy, dimmed while the engine is stopped).
+  Left click opens the panel, right click opens the dashboard, middle click refreshes.
+- **Panel**: engine state and address, start/stop, and the eight most recent
+  pieces of work with phase, progress and the latest note.
+  Keys: `d` dashboard, `s` start/stop, `r` refresh, `Enter` dashboard.
+- **Notifications** when a preparation finishes or fails (can be turned off).
+
+The plugin only calls the `hycli` CLI (`status`, `jobs ls`, `open`, `stop`). It
+never talks to the dashboard's HTTP API or reads its session secrets;
+`hycli open` gives the browser its own launch address.
+
 ## Requirements
 
 This plugin does not include Hycli. Install it first from the
@@ -24,18 +36,6 @@ omarchy plugin remove mechurisr.hycli
 
 The plugin writes no files of its own. Hycli itself, and its data, are left
 as they are.
-
-- **Bar**: globe glyph, plus the number of preparations still running
-  (accent colour while busy, dimmed while the engine is stopped).
-  Left click opens the panel, right click opens the dashboard, middle click refreshes.
-- **Panel**: engine state and address, start/stop, and the eight most recent
-  pieces of work with phase, progress and the latest note.
-  Keys: `d` dashboard, `s` start/stop, `r` refresh, `Enter` dashboard.
-- **Notifications** when a preparation finishes or fails (can be turned off).
-
-The plugin only calls the `hycli` CLI (`status`, `jobs ls`, `open`, `stop`). It
-never talks to the dashboard's HTTP API or reads its session secrets;
-`hycli open` gives the browser its own launch address.
 
 ## Settings
 

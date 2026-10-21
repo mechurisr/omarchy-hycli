@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "mechurisr.hycli",
   "name": "Hycli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "chanwook lee",
   "license": "MIT",
   "description": "Status of the local Hycli engine and its website preparation work, with one-click access to the dashboard.",

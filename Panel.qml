@@ -40,7 +40,7 @@ Panel {
   readonly property var active: jobs.filter(function(j) { return isWorking(j.status) })
   readonly property bool busy: active.length > 0
 
-  readonly property string glyph: "󰖟"
+  readonly property string glyph: "󱗆"
   readonly property string label: busy ? glyph + " " + active.length : glyph
 
   readonly property var recent: {
