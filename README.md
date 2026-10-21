@@ -10,6 +10,8 @@ turns websites into a typed CLI and MCP server for AI agents.
   pieces of work with phase, progress and the latest note.
   Keys: `d` dashboard, `s` start/stop, `r` refresh, `Enter` dashboard.
 - **Notifications** when a preparation finishes or fails (can be turned off).
+  They only say how many finished or stopped; titles and results stay in the
+  panel, because notification text is passed as process arguments.
 
 The plugin only calls the `hycli` CLI (`status`, `jobs ls`, `open --no-open`,
 `stop`) and never talks to the dashboard's HTTP API.
@@ -93,7 +95,7 @@ as they are.
 | Key | Default | |
 | --- | --- | --- |
 | `binary` | `hycli` | Path to the executable, if it is not on `PATH`. |
-| `notify` | `true` | Desktop notification when work finishes. |
+| `notify` | `true` | Desktop notification when work finishes (counts only). |
 
 ```sh
 omarchy bar set mechurisr.hycli binary ~/.local/bin/hycli

@@ -105,17 +105,29 @@ Panel {
   }
 
   // A preparation can take minutes; say when one stops, not when it starts.
+  // notify-send takes its text as arguments, which other users can read from
+  // /proc, so the notification only carries counts. Site and action titles
+  // and summaries stay in the panel.
   function announceFinished() {
     var next = {}
+    var done = 0, other = 0
     for (var i = 0; i < jobs.length; i++) {
       var j = jobs[i]
       var before = lastStatus[j.id]
-      if (notifyDone && before && isWorking(before) && !isWorking(j.status))
-        Quickshell.execDetached(["notify-send", "-a", "Hycli",
-          jobTitle(j), j.status === "completed" ? (j.summary || "Finished.") : statusText(j)])
+      if (before && isWorking(before) && !isWorking(j.status)) {
+        if (j.status === "completed") done++
+        else other++
+      }
       next[j.id] = j.status
     }
     lastStatus = next
+    if (!notifyDone || done + other === 0) return
+    var parts = []
+    if (done) parts.push(done + " finished")
+    if (other) parts.push(other + " stopped without finishing")
+    Quickshell.execDetached(["notify-send", "-a", "Hycli",
+      other ? "Hycli work stopped" : "Hycli work finished",
+      parts.join(", ") + ". Open the Hycli panel for details."])
   }
 
   // `hycli open` would pass the launch address, token included, to xdg-open
